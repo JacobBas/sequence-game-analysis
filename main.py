@@ -536,11 +536,11 @@ if __name__ == "__main__":
         cbar=True,
         mask=np.isnan(count_matrix),
     )
-    output_image_path = "plots/winning_cells_matrix.png"
-    plt.savefig(output_image_path)
     plt.title("Win Count Heatmap")
     plt.xlabel("Column Index")
     plt.ylabel("Row Index")
+    output_image_path = "plots/winning_cells_matrix.png"
+    plt.savefig(output_image_path)
     plt.show()
 
     # first move win count matrix ===================================
@@ -554,11 +554,11 @@ if __name__ == "__main__":
         cbar=True,
         mask=np.isnan(count_matrix),
     )
-    output_image_path = "plots/winning_first_move_matrix.png"
-    plt.savefig(output_image_path)
     plt.title("First Move Win Count Heatmap")
     plt.xlabel("Column Index")
     plt.ylabel("Row Index")
+    output_image_path = "plots/winning_first_move_matrix.png"
+    plt.savefig(output_image_path)
     plt.show()
 
     # play order win distribution ===================================

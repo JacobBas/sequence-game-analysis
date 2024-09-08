@@ -10,7 +10,9 @@ based on a weighting / scoring of each cell given the overall board.
 """
 
 import random
+from collections import defaultdict
 from dataclasses import dataclass
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
@@ -39,6 +41,8 @@ FULL_DECK: list[Card] = [
     "A♦️", "2♦️", "3♦️", "4♦️", "5♦️", "6♦️", "7♦️", "8♦️", "9♦️", "10♦️", "J♦️", "Q♦️", "K♦️",
     "A❤️", "2❤️", "3❤️", "4❤️", "5❤️", "6❤️", "7❤️", "8❤️", "9❤️", "10❤️", "J❤️", "Q❤️", "K❤️",
 ]
+CHIPS: list[Chip] = ["🔵", "🟢", "🔴"]
+EMPTY_CHIP = " "
 BLANK_SPACE = "***"
 WINNING_CHIP = "<🟡>"
 # fmt: on
@@ -52,6 +56,10 @@ class SequenceBoardCell:
     card: Card
     chip: Chip
     playable: bool
+    chip_score: dict[Chip, Decimal]
+
+
+Board = list[list[SequenceBoardCell]]
 
 
 @dataclass
@@ -78,12 +86,14 @@ def remove_jacks_from_deck(cards: list[Card]) -> list[Card]:
 def make_draw_deck(number_of_decks: int) -> list[Card]:
     deck = remove_jacks_from_deck(FULL_DECK) * number_of_decks
     random.shuffle(deck)
+    random.shuffle(deck)
     return deck
 
 
 def deal_from_deck(
     number_of_players: int, number_of_cards: int, deck: list[Card]
 ) -> tuple[list[list[Card]], list[Card]]:
+    random.shuffle(deck)
     player_cards: list[list[Card]] = [[] for _ in range(number_of_players)]
     for _ in range(number_of_cards):
         for player in range(number_of_players):
@@ -91,7 +101,7 @@ def deal_from_deck(
     return player_cards, deck
 
 
-def make_standard_sequence_board() -> list[list[SequenceBoardCell]]:
+def make_standard_sequence_board() -> Board:
     """
     This function makes a standard and randomized sequence board of cards. The standard
     sequence board uses 2 decks of cards (excluding the jacks) for a full count of 48x2 = 96
@@ -104,7 +114,7 @@ def make_standard_sequence_board() -> list[list[SequenceBoardCell]]:
     random.shuffle(sequence_board_deck)
 
     # generating the sequence baord from the random shuffled deck of cards
-    board_matrix: list[list[SequenceBoardCell]] = []
+    board_matrix: Board = []
     for n in range(10):
         # generating the rows
         row: list[SequenceBoardCell] = []
@@ -114,14 +124,22 @@ def make_standard_sequence_board() -> list[list[SequenceBoardCell]]:
             if (n, m) in [(0, 0), (0, 9), (9, 0), (9, 9)]:
                 row.append(
                     SequenceBoardCell(
-                        coordinate=(n, m), card=BLANK_SPACE, chip=" ", playable=False
+                        coordinate=(n, m),
+                        card=BLANK_SPACE,
+                        chip=" ",
+                        playable=False,
+                        chip_score={chip: Decimal("0") for chip in CHIPS},
                     )
                 )
             else:
                 selected_card = sequence_board_deck.pop()
                 row.append(
                     SequenceBoardCell(
-                        coordinate=(n, m), card=selected_card, chip=" ", playable=True
+                        coordinate=(n, m),
+                        card=selected_card,
+                        chip=" ",
+                        playable=True,
+                        chip_score={chip: Decimal("0") for chip in CHIPS},
                     )
                 )
 
@@ -130,7 +148,7 @@ def make_standard_sequence_board() -> list[list[SequenceBoardCell]]:
     return board_matrix
 
 
-def format_sequence_board_to_str(board: list[list[SequenceBoardCell]]) -> str:
+def format_sequence_board_to_str(board: Board) -> str:
     """
     Takes a sequence board and formats the board into an easier to understand string
     representation.
@@ -166,26 +184,14 @@ def format_sequence_board_to_str(board: list[list[SequenceBoardCell]]) -> str:
     return board_str
 
 
-def place_chip_randomly(
-    current_board: list[list[SequenceBoardCell]],
-    draw_pile_cards: list[Card],
-    hand_cards: list[Card],
-    chip_color: Chip,
-) -> tuple[list[list[SequenceBoardCell]], list[Card], list[Card], Coordinate]:
-    """
-    This function plays a turn on the sequence board as if the player was just randomly
-    playing a game of sequence with no real thought into their movements.
-
-    This function takes in the current state of the board and players cards and returns out
-    the new state of the board and the remaining cards for the user.
-
-    NOTE: Going to ignore dead cards for now since that makes things alot more tricky
-    and doesn't really give any real benefit to the implenentation as of right now. We can
-    figure out that problem after.
-
-        # dead_cards: cards that have no option to play on the board such that they belong
-        # in the discard pile
-    """
+def group_cells_for_turn(
+    board: Board, hand_cards: list[Card], chip_color: Chip
+) -> tuple[
+    list[SequenceBoardCell],
+    list[SequenceBoardCell],
+    list[SequenceBoardCell],
+    list[SequenceBoardCell],
+]:
     # empty_cells: are cells that currently do not have a chip on them; this class is helpful
     # for if the current player has a two eyed jack that can play wild
     empty_cells: list[SequenceBoardCell] = []
@@ -203,7 +209,7 @@ def place_chip_randomly(
     available_to_play_cells: list[SequenceBoardCell] = []
 
     # scan through the baord to see what spaces I can play given the current available play cards
-    for row in current_board:
+    for row in board:
         for cell in row:
             # classifying based on the chip
             if cell.chip == " ":
@@ -217,6 +223,36 @@ def place_chip_randomly(
 
             else:
                 opposing_cells.append(cell)
+
+    return empty_cells, friendly_cells, opposing_cells, available_to_play_cells
+
+
+def place_chip_randomly(
+    current_board: Board,
+    draw_pile_cards: list[Card],
+    hand_cards: list[Card],
+    chip_color: Chip,
+) -> tuple[Board, list[Card], list[Card], Coordinate]:
+    """
+    This function plays a turn on the sequence board as if the player was just randomly
+    playing a game of sequence with no real thought into their movements.
+
+    This function takes in the current state of the board and players cards and returns out
+    the new state of the board and the remaining cards for the user.
+
+    NOTE: Going to ignore dead cards for now since that makes things alot more tricky
+    and doesn't really give any real benefit to the implenentation as of right now. We can
+    figure out that problem after.
+
+        # dead_cards: cards that have no option to play on the board such that they belong
+        # in the discard pile
+    """
+
+    empty_cells, friendly_cells, opposing_cells, available_to_play_cells = (
+        group_cells_for_turn(
+            board=current_board, hand_cards=hand_cards, chip_color=chip_color
+        )
+    )
 
     # given how jacks can be played, we need to check to see if there are any jacks
     # within the hand
@@ -270,6 +306,143 @@ def place_chip_randomly(
     return current_board, draw_pile_cards, hand_cards, selected_cell.coordinate
 
 
+def place_chip_based_on_score(
+    current_board: Board,
+    draw_pile_cards: list[Card],
+    hand_cards: list[Card],
+    chip_color: Chip,
+) -> tuple[Board, list[Card], list[Card], Coordinate]:
+    empty_cells, friendly_cells, opposing_cells, available_to_play_cells = (
+        group_cells_for_turn(
+            board=current_board, hand_cards=hand_cards, chip_color=chip_color
+        )
+    )
+
+    best_empty_cell = sorted(empty_cells, key=lambda x: x.chip_score[chip_color])[-1]
+
+    best_opposing_cell = None
+    if opposing_cells:
+        best_opposing_cell = sorted(
+            opposing_cells,
+            key=lambda x: max(
+                score for chip, score in x.chip_score.items() if chip != chip_color
+            ),
+        )[-1]
+    best_available_to_play_cell = sorted(
+        available_to_play_cells, key=lambda x: x.chip_score[chip_color]
+    )[-1]
+
+    # given how jacks can be played, we need to check to see if there are any jacks
+    # within the hand
+    can_play_wild = any(jack in hand_cards for jack in TWO_EYED_JACKS)
+    can_remove_opposing_wild = any(jack in hand_cards for jack in ONE_EYED_JACKS)
+
+    # next we need to get the best score for either a play or a removal
+    place_chip_score = best_available_to_play_cell.chip_score[chip_color]
+    place_wild_chip_score = best_empty_cell.chip_score[chip_color]
+
+    if best_opposing_cell:
+        remove_chip_score = max(
+            score
+            for chip, score in best_opposing_cell.chip_score.items()
+            if chip != chip_color
+        )
+    else:
+        remove_chip_score = Decimal("0")
+
+    if (
+        can_remove_opposing_wild
+        and remove_chip_score > place_chip_score
+        and remove_chip_score > place_wild_chip_score
+        and best_opposing_cell
+    ):
+        selected_cell = best_opposing_cell
+        # updating the board with the empty chip to remove the play
+        current_board[selected_cell.coordinate[0]][
+            selected_cell.coordinate[1]
+        ].chip = " "
+        # discarding the card from the hand pile and replacing with draw card
+        indecies = [i for i, card in enumerate(hand_cards) if card in ONE_EYED_JACKS]
+        hand_cards.pop(indecies[0])
+        hand_cards.append(draw_pile_cards.pop(0))
+
+    elif can_play_wild and place_wild_chip_score > place_chip_score:
+        selected_cell = best_empty_cell
+        # updating the board with the new chip
+        current_board[selected_cell.coordinate[0]][
+            selected_cell.coordinate[1]
+        ].chip = chip_color
+        # discarding the card from the hand pile and replacing with draw card
+        indecies = [i for i, card in enumerate(hand_cards) if card in TWO_EYED_JACKS]
+        hand_cards.pop(indecies[0])
+        hand_cards.append(draw_pile_cards.pop(0))
+
+    else:
+        selected_cell = best_available_to_play_cell
+        # updating the board with the new chip
+        current_board[selected_cell.coordinate[0]][
+            selected_cell.coordinate[1]
+        ].chip = chip_color
+        # discarding the card from the hand pile and replacing with draw card
+        indecies = [
+            i for i, card in enumerate(hand_cards) if card == selected_cell.card
+        ]
+        hand_cards.pop(indecies[0])
+        hand_cards.append(draw_pile_cards.pop(0))
+
+    return current_board, draw_pile_cards, hand_cards, selected_cell.coordinate
+
+
+def get_adjacent_indecies(coord: Coordinate) -> list[Coordinate]:
+    collected_coord: list[Coordinate] = []
+    for vertical in [0, 1, -1]:
+        for horizontal in [0, 1, -1]:
+            if vertical == 0 and horizontal == 0:
+                continue
+            collected_coord.append((coord[0] + vertical, coord[1] + horizontal))
+    return collected_coord
+
+
+def score_cells(board: Board) -> Board:
+    rows = len(board)
+    cols = len(board[0])
+
+    for i in range(rows):
+        for j in range(cols):
+            # pulling out the current score to understand the shape
+            current_score = board[i][j].chip_score
+
+            adjacent_coords = get_adjacent_indecies((i, j))
+            chip_counts: dict[Chip, int] = defaultdict(int)
+            for coord in adjacent_coords:
+                # if there is a -1 value in the coordinates then it goes outside the bounds
+                if -1 in coord:
+                    continue
+
+                try:
+                    chip_counts[board[coord[0]][coord[1]].chip] += 1
+                except IndexError:
+                    # if the chip is out of bounds, we can just skip it since it means
+                    # that we are at the edges or adjancent to empty cells on the board
+                    pass
+            total_adjacent_cells = sum(chip_counts.values())
+
+            for chip in current_score.keys():
+                empty_count = chip_counts[EMPTY_CHIP]
+                same_color_count = chip_counts[chip]
+                opposing_count = total_adjacent_cells - empty_count - same_color_count
+                cell_score = (
+                    (empty_count * Decimal(".35"))
+                    + (same_color_count * Decimal(".5"))
+                    + (opposing_count * Decimal("-.2"))
+                )
+                current_score[chip] = cell_score
+
+            # assigning the newly calculated score to the board
+            board[i][j].chip_score = current_score
+    return board
+
+
 @lru_cache
 def get_vertical_indecies(n: int, m: int) -> list[list[Coordinate]]:
     collected_coords: list[list[Coordinate]] = []
@@ -319,9 +492,7 @@ def get_diagonal_indices(n: int, m: int) -> list[list[Coordinate]]:
     return diagonal_indices
 
 
-def check_vertical_win_condition(
-    board: list[list[SequenceBoardCell]], chip_color: Chip
-) -> list[Coordinate]:
+def check_vertical_win_condition(board: Board, chip_color: Chip) -> list[Coordinate]:
     rows = len(board)
     cols = len(board[0])
     indecies = get_vertical_indecies(rows, cols)
@@ -337,9 +508,7 @@ def check_vertical_win_condition(
     return []
 
 
-def check_horizontal_win_condition(
-    board: list[list[SequenceBoardCell]], chip_color: Chip
-) -> list[Coordinate]:
+def check_horizontal_win_condition(board: Board, chip_color: Chip) -> list[Coordinate]:
     rows = len(board)
     cols = len(board[0])
     indecies = get_horizontal_indecies(rows, cols)
@@ -355,9 +524,7 @@ def check_horizontal_win_condition(
     return []
 
 
-def check_diagonal_win_condition(
-    board: list[list[SequenceBoardCell]], chip_color: Chip
-) -> list[Coordinate]:
+def check_diagonal_win_condition(board: Board, chip_color: Chip) -> list[Coordinate]:
     rows = len(board)
     cols = len(board[0])
     diag_indecies = get_diagonal_indices(rows, cols)
@@ -388,8 +555,8 @@ def check_diagonal_win_condition(
 
 
 def update_board_with_winning_sequence(
-    board: list[list[SequenceBoardCell]], indecies: list[Coordinate]
-) -> list[list[SequenceBoardCell]]:
+    board: Board, indecies: list[Coordinate]
+) -> Board:
     for index in indecies:
         board[index[0]][index[1]].chip = WINNING_CHIP  # type: ignore
     return board
@@ -397,11 +564,8 @@ def update_board_with_winning_sequence(
 
 if __name__ == "__main__":
     game_count = 0
-    player_chips: list[Chip] = ["🔵", "🟢", "🔴"]
     win_counter: dict[Chip, dict[str, int]] = {
-        "🔵": {"order": 1, "count": 0},
-        "🟢": {"order": 2, "count": 0},
-        "🔴": {"order": 3, "count": 0},
+        chip: {"order": i, "count": 0} for i, chip in enumerate(CHIPS)
     }
 
     # preparing the statistics to be collected ===============================================
@@ -420,7 +584,7 @@ if __name__ == "__main__":
         collected_statistics.append(row)
 
     # running the simulation of the data =====================================================
-    for _ in range(100_000):
+    for _ in range(1000):
         # Setting up the game by creating the board, creating the draw deck, and dealing
         # to the players
         sequence_board = make_standard_sequence_board()
@@ -428,10 +592,10 @@ if __name__ == "__main__":
 
         # initializing the two players. This can be made more generic later on
         play_cards, draw_deck = deal_from_deck(
-            number_of_players=len(player_chips), number_of_cards=6, deck=draw_deck
+            number_of_players=len(CHIPS), number_of_cards=6, deck=draw_deck
         )
         players = []
-        for i, chip in enumerate(player_chips):
+        for i, chip in enumerate(CHIPS):
             players.append(
                 Player(hand=play_cards[i], chip=chip),
             )
@@ -443,16 +607,29 @@ if __name__ == "__main__":
         round_of_play = 1
         first_move_coordinate: dict[Chip, Coordinate] = {}
         while winning_chip == " " and draw == False:
+            # running the scoring function for each of the cells at the start of the round
+            sequence_board = score_cells(sequence_board)
+
             for player in players:
                 try:
-                    sequence_board, draw_deck, player.hand, played_coordinate = (
-                        place_chip_randomly(
-                            current_board=sequence_board,
-                            draw_pile_cards=draw_deck,
-                            hand_cards=player.hand,
-                            chip_color=player.chip,
+                    if player.chip in ["🔵"] and round_of_play != 1:
+                        sequence_board, draw_deck, player.hand, played_coordinate = (
+                            place_chip_based_on_score(
+                                current_board=sequence_board,
+                                draw_pile_cards=draw_deck,
+                                hand_cards=player.hand,
+                                chip_color=player.chip,
+                            )
                         )
-                    )
+                    else:
+                        sequence_board, draw_deck, player.hand, played_coordinate = (
+                            place_chip_randomly(
+                                current_board=sequence_board,
+                                draw_pile_cards=draw_deck,
+                                hand_cards=player.hand,
+                                chip_color=player.chip,
+                            )
+                        )
 
                     # tracking the first move coordinate to gain an understanding of the best
                     # first moves
@@ -505,6 +682,27 @@ if __name__ == "__main__":
             # collecting a win counter for each team
             win_counter[winning_chip]["count"] += 1
 
+        print(
+            f"End Game {game_count} Results ================================================================="
+        )
+        if draw:
+            print("Game has ended in a draw...")
+        else:
+            assert winning_indecies
+            print(
+                format_sequence_board_to_str(
+                    update_board_with_winning_sequence(sequence_board, winning_indecies)
+                )
+            )
+            for player in players:
+                print(f"Player {player.chip} Hand: {player.hand}")
+            print("")
+            print(f"Congrats team {winning_chip}! {winning_message}")
+            print(f"The winning indecies are {winning_indecies}")
+
+        print(f"This game lasted {round_of_play} rounds of play.")
+        print()
+
     # plotting the statistics for visual intuition ===========================================
 
     # extracting the statistics that we want to plot...
@@ -539,7 +737,7 @@ if __name__ == "__main__":
     plt.title("Win Count Heatmap")
     plt.xlabel("Column Index")
     plt.ylabel("Row Index")
-    output_image_path = "plots/winning_cells_matrix.png"
+    output_image_path = "plots/iter_1_smart_play_winning_cells_matrix.png"
     plt.savefig(output_image_path)
     plt.show()
 
@@ -557,41 +755,22 @@ if __name__ == "__main__":
     plt.title("First Move Win Count Heatmap")
     plt.xlabel("Column Index")
     plt.ylabel("Row Index")
-    output_image_path = "plots/winning_first_move_matrix.png"
+    output_image_path = "plots/iter_1_smart_play_winning_first_move_matrix.png"
     plt.savefig(output_image_path)
     plt.show()
 
     # play order win distribution ===================================
+    # Assuming win_counter contains the same data
     sorted_data = dict(sorted(win_counter.items(), key=lambda item: item[1]["order"]))
     labels = ["First Turn", "Second Turn", "Third Turn"]
     counts = [value["count"] for value in sorted_data.values()]
+    total_wins = sum(counts)
+    percentages = [(count / total_wins) * 100 for count in counts]
     plt.figure(figsize=(8, 6))
-    plt.bar(labels, counts)
+    plt.bar(labels, percentages)
     plt.xlabel("Players")
-    plt.ylabel("Win Count")
-    plt.title("Wins from First to Last Play Order")
-    output_image_path = "plots/distribution_of_order_winnings.png"
+    plt.ylabel("Win Percentage (%)")
+    plt.title("Win Percentage from First to Last Play Order")
+    output_image_path = "plots/iter_1_smart_play_distribution_of_order_winnings.png"
     plt.savefig(output_image_path)
     plt.show()
-
-    # print sequence when we want to print out the end game data
-    # print(
-    #     f"End Game {game_count} Results ================================================================="
-    # )
-    # if draw:
-    #     print("Game has ended in a draw...")
-    # else:
-    #     assert winning_indecies
-    #     print(
-    #         format_sequence_board_to_str(
-    #             update_board_with_winning_sequence(sequence_board, winning_indecies)
-    #         )
-    #     )
-    #     for player in players:
-    #         print(f"Player {player.chip} Hand: {player.hand}")
-    #     print("")
-    #     print(f"Congrats team {winning_chip}! {winning_message}")
-    #     print(f"The winning indecies are {winning_indecies}")
-
-    # print(f"This game lasted {round_of_play} rounds of play.")
-    # print()

@@ -1,0 +1,12 @@
+[project]
+name = "sequence-analysis"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "isort>=5.13.2",
+    "matplotlib>=3.9.2",
+    "ruff>=0.6.4",
+    "seaborn>=0.13.2",
+]

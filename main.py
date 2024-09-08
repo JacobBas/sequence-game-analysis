@@ -565,13 +565,13 @@ if __name__ == "__main__":
     sorted_data = dict(sorted(win_counter.items(), key=lambda item: item[1]["order"]))
     labels = ["First Turn", "Second Turn", "Third Turn"]
     counts = [value["count"] for value in sorted_data.values()]
-    output_image_path = "plots/distribution_of_order_winnings.png"
-    plt.savefig(output_image_path)
     plt.figure(figsize=(8, 6))
     plt.bar(labels, counts)
     plt.xlabel("Players")
     plt.ylabel("Win Count")
     plt.title("Wins from First to Last Play Order")
+    output_image_path = "plots/distribution_of_order_winnings.png"
+    plt.savefig(output_image_path)
     plt.show()
 
     # print sequence when we want to print out the end game data

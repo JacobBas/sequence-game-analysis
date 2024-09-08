@@ -306,7 +306,7 @@ def place_chip_randomly(
     return current_board, draw_pile_cards, hand_cards, selected_cell.coordinate
 
 
-def place_chip_based_on_score(
+def place_chip_based_on_score_offensive(
     current_board: Board,
     draw_pile_cards: list[Card],
     hand_cards: list[Card],
@@ -403,7 +403,12 @@ def get_adjacent_indecies(coord: Coordinate) -> list[Coordinate]:
     return collected_coord
 
 
-def score_cells(board: Board) -> Board:
+def score_cells_simple(board: Board) -> Board:
+    _WEIGHTS = {
+        "adjacent_empty": Decimal(.35),
+        "adjacent_friendly":Decimal(.5),
+        "adjacent_opposing":Decimal(-.2),
+    }
     rows = len(board)
     cols = len(board[0])
 
@@ -432,9 +437,9 @@ def score_cells(board: Board) -> Board:
                 same_color_count = chip_counts[chip]
                 opposing_count = total_adjacent_cells - empty_count - same_color_count
                 cell_score = (
-                    (empty_count * Decimal(".35"))
-                    + (same_color_count * Decimal(".5"))
-                    + (opposing_count * Decimal("-.2"))
+                    (empty_count * _WEIGHTS["adjacent_empty"])
+                    + (same_color_count * _WEIGHTS["adjacent_friendly"])
+                    + (opposing_count * _WEIGHTS["adjacent_opposing"])
                 )
                 current_score[chip] = cell_score
 
@@ -584,7 +589,7 @@ if __name__ == "__main__":
         collected_statistics.append(row)
 
     # running the simulation of the data =====================================================
-    for _ in range(1000):
+    for _ in range(10_000):
         # Setting up the game by creating the board, creating the draw deck, and dealing
         # to the players
         sequence_board = make_standard_sequence_board()
@@ -608,13 +613,13 @@ if __name__ == "__main__":
         first_move_coordinate: dict[Chip, Coordinate] = {}
         while winning_chip == " " and draw == False:
             # running the scoring function for each of the cells at the start of the round
-            sequence_board = score_cells(sequence_board)
+            sequence_board = score_cells_simple(sequence_board)
 
             for player in players:
                 try:
                     if player.chip in ["🔵"] and round_of_play != 1:
                         sequence_board, draw_deck, player.hand, played_coordinate = (
-                            place_chip_based_on_score(
+                            place_chip_based_on_score_offensive(
                                 current_board=sequence_board,
                                 draw_pile_cards=draw_deck,
                                 hand_cards=player.hand,
@@ -682,26 +687,26 @@ if __name__ == "__main__":
             # collecting a win counter for each team
             win_counter[winning_chip]["count"] += 1
 
-        print(
-            f"End Game {game_count} Results ================================================================="
-        )
-        if draw:
-            print("Game has ended in a draw...")
-        else:
-            assert winning_indecies
-            print(
-                format_sequence_board_to_str(
-                    update_board_with_winning_sequence(sequence_board, winning_indecies)
-                )
-            )
-            for player in players:
-                print(f"Player {player.chip} Hand: {player.hand}")
-            print("")
-            print(f"Congrats team {winning_chip}! {winning_message}")
-            print(f"The winning indecies are {winning_indecies}")
+        # print(
+        #     f"End Game {game_count} Results ================================================================="
+        # )
+        # if draw:
+        #     print("Game has ended in a draw...")
+        # else:
+        #     assert winning_indecies
+        #     print(
+        #         format_sequence_board_to_str(
+        #             update_board_with_winning_sequence(sequence_board, winning_indecies)
+        #         )
+        #     )
+        #     for player in players:
+        #         print(f"Player {player.chip} Hand: {player.hand}")
+        #     print("")
+        #     print(f"Congrats team {winning_chip}! {winning_message}")
+        #     print(f"The winning indecies are {winning_indecies}")
 
-        print(f"This game lasted {round_of_play} rounds of play.")
-        print()
+        # print(f"This game lasted {round_of_play} rounds of play.")
+        # print()
 
     # plotting the statistics for visual intuition ===========================================
 

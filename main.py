@@ -14,7 +14,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Callable, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -311,6 +311,15 @@ def place_chip_randomly(
     return current_board, draw_pile_cards, hand_cards, selected_cell.coordinate
 
 
+def select_cell_based_on_score_function(
+    cells: list[SequenceBoardCell],
+    score_function: Callable[[SequenceBoardCell], Decimal],
+) -> SequenceBoardCell:
+    calced_scores = [(score_function(cell), cell) for cell in cells]
+    max_score = max({item[0] for item in calced_scores})
+    return random.choice([item[1] for item in calced_scores if item[0] == max_score])
+
+
 def place_chip_based_on_score(
     current_board: Board,
     draw_pile_cards: list[Card],
@@ -324,34 +333,34 @@ def place_chip_based_on_score(
         )
     )
 
-    best_empty_cell_offensive = sorted(
-        empty_cells, key=lambda x: x.chip_score[chip_color]
-    )[-1]
-    best_available_to_play_cell_offensive = sorted(
-        available_to_play_cells, key=lambda x: x.chip_score[chip_color]
-    )[-1]
-
-    best_empty_cell_defensive = sorted(
+    # selecting the best cells based on the different score functions
+    best_empty_cell_offensive = select_cell_based_on_score_function(
+        empty_cells, lambda x: x.chip_score[chip_color]
+    )
+    best_available_to_play_cell_offensive = select_cell_based_on_score_function(
+        available_to_play_cells, lambda x: x.chip_score[chip_color]
+    )
+    best_empty_cell_defensive = select_cell_based_on_score_function(
         empty_cells,
-        key=lambda x: max(
+        lambda x: max(
             score for chip, score in x.chip_score.items() if chip != chip_color
         ),
-    )[-1]
-    best_available_to_play_cell_defensive = sorted(
+    )
+    best_available_to_play_cell_defensive = select_cell_based_on_score_function(
         available_to_play_cells,
-        key=lambda x: max(
+        lambda x: max(
             score for chip, score in x.chip_score.items() if chip != chip_color
         ),
-    )[-1]
+    )
 
     best_opposing_cell = None
     if opposing_cells:
-        best_opposing_cell = sorted(
+        best_opposing_cell = select_cell_based_on_score_function(
             opposing_cells,
-            key=lambda x: max(
+            lambda x: max(
                 score for chip, score in x.chip_score.items() if chip != chip_color
             ),
-        )[-1]
+        )
 
     # given how jacks can be played, we need to check to see if there are any jacks
     # within the hand
@@ -633,7 +642,7 @@ if __name__ == "__main__":
         collected_statistics.append(row)
 
     # running the simulation of the data =====================================================
-    for _ in range(10_000):
+    for _ in range(20_000):
         # Setting up the game by creating the board, creating the draw deck, and dealing
         # to the players
         sequence_board = make_standard_sequence_board()
@@ -667,7 +676,7 @@ if __name__ == "__main__":
                 # we want to be able to track the wins by the defensive percent so
                 # that we are not correlating this with the order of play
                 try:
-                    if player.defensive_percent == -1 or round_of_play == 1:
+                    if player.defensive_percent == -1:
                         sequence_board, draw_deck, player.hand, played_coordinate = (
                             place_chip_randomly(
                                 current_board=sequence_board,
@@ -848,11 +857,11 @@ if __name__ == "__main__":
     win_percentages = [(count / total_wins) * 100 for count in win_counts]
     x_labels = ["Random Play" if x == -1 else f"{x}%" for x in defensive_percents]
     plt.figure(figsize=(10, 6))
-    plt.plot(x_labels, win_percentages, marker='o', linestyle='-', color='b')
+    plt.plot(x_labels, win_percentages, marker="o", linestyle="-", color="b")
     plt.xlabel("Defensive Play Percentage")
     plt.ylabel("Percentage of Wins (%)")
     plt.title("Percentage of Wins Based on Defensive Play Style")
-    plt.grid(axis='y')
+    plt.grid(axis="y")
     plt.xticks(rotation=45)
     output_image_path = "plots/defensive_play_style_wins_line_chart.png"
     plt.savefig(output_image_path)

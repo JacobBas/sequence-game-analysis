@@ -66,6 +66,7 @@ Board = list[list[SequenceBoardCell]]
 class Player:
     hand: list[Card]
     chip: Chip
+    defensive_percent: int
 
 
 @dataclass
@@ -77,6 +78,10 @@ class CellSpecificStats:
 
 def random_boolean() -> bool:
     return random.choice([True, False])
+
+
+def random_bool_by_percent(percent: int):
+    return random.random() < (percent / 100.0)
 
 
 def remove_jacks_from_deck(cards: list[Card]) -> list[Card]:
@@ -306,11 +311,12 @@ def place_chip_randomly(
     return current_board, draw_pile_cards, hand_cards, selected_cell.coordinate
 
 
-def place_chip_based_on_score_offensive(
+def place_chip_based_on_score(
     current_board: Board,
     draw_pile_cards: list[Card],
     hand_cards: list[Card],
     chip_color: Chip,
+    defensive_percent: int = 0,
 ) -> tuple[Board, list[Card], list[Card], Coordinate]:
     empty_cells, friendly_cells, opposing_cells, available_to_play_cells = (
         group_cells_for_turn(
@@ -318,7 +324,25 @@ def place_chip_based_on_score_offensive(
         )
     )
 
-    best_empty_cell = sorted(empty_cells, key=lambda x: x.chip_score[chip_color])[-1]
+    best_empty_cell_offensive = sorted(
+        empty_cells, key=lambda x: x.chip_score[chip_color]
+    )[-1]
+    best_available_to_play_cell_offensive = sorted(
+        available_to_play_cells, key=lambda x: x.chip_score[chip_color]
+    )[-1]
+
+    best_empty_cell_defensive = sorted(
+        empty_cells,
+        key=lambda x: max(
+            score for chip, score in x.chip_score.items() if chip != chip_color
+        ),
+    )[-1]
+    best_available_to_play_cell_defensive = sorted(
+        available_to_play_cells,
+        key=lambda x: max(
+            score for chip, score in x.chip_score.items() if chip != chip_color
+        ),
+    )[-1]
 
     best_opposing_cell = None
     if opposing_cells:
@@ -328,9 +352,6 @@ def place_chip_based_on_score_offensive(
                 score for chip, score in x.chip_score.items() if chip != chip_color
             ),
         )[-1]
-    best_available_to_play_cell = sorted(
-        available_to_play_cells, key=lambda x: x.chip_score[chip_color]
-    )[-1]
 
     # given how jacks can be played, we need to check to see if there are any jacks
     # within the hand
@@ -338,8 +359,17 @@ def place_chip_based_on_score_offensive(
     can_remove_opposing_wild = any(jack in hand_cards for jack in ONE_EYED_JACKS)
 
     # next we need to get the best score for either a play or a removal
-    place_chip_score = best_available_to_play_cell.chip_score[chip_color]
-    place_wild_chip_score = best_empty_cell.chip_score[chip_color]
+    defensive_play = random_bool_by_percent(defensive_percent)
+    place_chip_score = (
+        best_available_to_play_cell_offensive.chip_score[chip_color]
+        if not defensive_play
+        else best_available_to_play_cell_defensive.chip_score[chip_color]
+    )
+    place_wild_chip_score = (
+        best_empty_cell_offensive.chip_score[chip_color]
+        if not defensive_play
+        else best_empty_cell_defensive.chip_score[chip_color]
+    )
 
     if best_opposing_cell:
         remove_chip_score = max(
@@ -367,7 +397,7 @@ def place_chip_based_on_score_offensive(
         hand_cards.append(draw_pile_cards.pop(0))
 
     elif can_play_wild and place_wild_chip_score > place_chip_score:
-        selected_cell = best_empty_cell
+        selected_cell = best_empty_cell_offensive
         # updating the board with the new chip
         current_board[selected_cell.coordinate[0]][
             selected_cell.coordinate[1]
@@ -378,7 +408,7 @@ def place_chip_based_on_score_offensive(
         hand_cards.append(draw_pile_cards.pop(0))
 
     else:
-        selected_cell = best_available_to_play_cell
+        selected_cell = best_available_to_play_cell_offensive
         # updating the board with the new chip
         current_board[selected_cell.coordinate[0]][
             selected_cell.coordinate[1]
@@ -405,9 +435,9 @@ def get_adjacent_indecies(coord: Coordinate) -> list[Coordinate]:
 
 def score_cells_simple(board: Board) -> Board:
     _WEIGHTS = {
-        "adjacent_empty": Decimal(.35),
-        "adjacent_friendly":Decimal(.5),
-        "adjacent_opposing":Decimal(-.2),
+        "adjacent_empty": Decimal(0.35),
+        "adjacent_friendly": Decimal(0.5),
+        "adjacent_opposing": Decimal(-0.2),
     }
     rows = len(board)
     cols = len(board[0])
@@ -572,6 +602,20 @@ if __name__ == "__main__":
     win_counter: dict[Chip, dict[str, int]] = {
         chip: {"order": i, "count": 0} for i, chip in enumerate(CHIPS)
     }
+    play_type_win_counter = {
+        -1: 0,
+        0: 0,
+        10: 0,
+        20: 0,
+        30: 0,
+        40: 0,
+        50: 0,
+        60: 0,
+        70: 0,
+        80: 0,
+        90: 0,
+        100: 0,
+    }
 
     # preparing the statistics to be collected ===============================================
     # becuase we want to collect statistics on the game being run, we are going to collect
@@ -599,14 +643,19 @@ if __name__ == "__main__":
         play_cards, draw_deck = deal_from_deck(
             number_of_players=len(CHIPS), number_of_cards=6, deck=draw_deck
         )
-        players = []
+        players: list[Player] = []
         for i, chip in enumerate(CHIPS):
             players.append(
-                Player(hand=play_cards[i], chip=chip),
+                Player(
+                    hand=play_cards[i],
+                    chip=chip,
+                    defensive_percent=random.choice(list(play_type_win_counter.keys())),
+                ),
             )
 
         draw = False
         winning_chip = " "
+        winning_defensive_percent = -1
         winning_message = ""
         winning_indecies: list[Coordinate] = []
         round_of_play = 1
@@ -614,12 +663,13 @@ if __name__ == "__main__":
         while winning_chip == " " and draw == False:
             # running the scoring function for each of the cells at the start of the round
             sequence_board = score_cells_simple(sequence_board)
-
             for player in players:
+                # we want to be able to track the wins by the defensive percent so
+                # that we are not correlating this with the order of play
                 try:
-                    if player.chip in ["🔵"] and round_of_play != 1:
+                    if player.defensive_percent == -1 or round_of_play == 1:
                         sequence_board, draw_deck, player.hand, played_coordinate = (
-                            place_chip_based_on_score_offensive(
+                            place_chip_randomly(
                                 current_board=sequence_board,
                                 draw_pile_cards=draw_deck,
                                 hand_cards=player.hand,
@@ -628,11 +678,12 @@ if __name__ == "__main__":
                         )
                     else:
                         sequence_board, draw_deck, player.hand, played_coordinate = (
-                            place_chip_randomly(
+                            place_chip_based_on_score(
                                 current_board=sequence_board,
                                 draw_pile_cards=draw_deck,
                                 hand_cards=player.hand,
                                 chip_color=player.chip,
+                                defensive_percent=player.defensive_percent,
                             )
                         )
 
@@ -646,6 +697,7 @@ if __name__ == "__main__":
                         board=sequence_board, chip_color=player.chip
                     ):
                         winning_chip = player.chip
+                        winning_defensive_percent = player.defensive_percent
                         winning_message = "You have won with a vertical sequence!"
                         break
 
@@ -654,6 +706,7 @@ if __name__ == "__main__":
                         board=sequence_board, chip_color=player.chip
                     ):
                         winning_chip = player.chip
+                        winning_defensive_percent = player.defensive_percent
                         winning_message = "You have won with a horizontal sequence!"
                         break
 
@@ -662,6 +715,7 @@ if __name__ == "__main__":
                         board=sequence_board, chip_color=player.chip
                     ):
                         winning_chip = player.chip
+                        winning_defensive_percent = player.defensive_percent
                         winning_message = "You have won with a diagonal sequence!"
                         break
 
@@ -683,6 +737,9 @@ if __name__ == "__main__":
             collected_statistics[winning_fm_index[0]][
                 winning_fm_index[1]
             ].as_first_move_win_count += 1
+
+            # collecting the wins by the defensive percent
+            play_type_win_counter[winning_defensive_percent] += 1
 
             # collecting a win counter for each team
             win_counter[winning_chip]["count"] += 1
@@ -727,6 +784,9 @@ if __name__ == "__main__":
             ]
             for row in matrix
         ]
+
+    # setting the general theme of the plots
+    sns.set_theme(style="whitegrid")
 
     # win count matrix ==============================================
     count_matrix = extract_win_counts(collected_statistics)
@@ -777,5 +837,23 @@ if __name__ == "__main__":
     plt.ylabel("Win Percentage (%)")
     plt.title("Win Percentage from First to Last Play Order")
     output_image_path = "plots/iter_1_smart_play_distribution_of_order_winnings.png"
+    plt.savefig(output_image_path)
+    plt.show()
+
+    # play style win distribution ===================================
+    # Separate the keys (defensive percentages) and values (number of wins)
+    defensive_percents = list(play_type_win_counter.keys())
+    win_counts = list(play_type_win_counter.values())
+    total_wins = sum(win_counts)
+    win_percentages = [(count / total_wins) * 100 for count in win_counts]
+    x_labels = ["Random Play" if x == -1 else f"{x}%" for x in defensive_percents]
+    plt.figure(figsize=(10, 6))
+    plt.plot(x_labels, win_percentages, marker='o', linestyle='-', color='b')
+    plt.xlabel("Defensive Play Percentage")
+    plt.ylabel("Percentage of Wins (%)")
+    plt.title("Percentage of Wins Based on Defensive Play Style")
+    plt.grid(axis='y')
+    plt.xticks(rotation=45)
+    output_image_path = "plots/defensive_play_style_wins_line_chart.png"
     plt.savefig(output_image_path)
     plt.show()
